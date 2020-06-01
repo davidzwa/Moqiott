@@ -1,0 +1,13 @@
+[Unit]
+Description=Mqtt Proxy service
+After=mosquitto.service
+ 
+[Service]
+User=pi
+Type=simple
+ExecStart=/usr/bin/python3 run.py
+WorkingDirectory=/home/david/mqtt-proxy
+Restart=always
+ 
+[Install]
+WantedBy=multi-user.target

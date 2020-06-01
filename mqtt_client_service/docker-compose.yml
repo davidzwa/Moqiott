@@ -1,0 +1,11 @@
+version: '2'
+services:
+    mqtt:
+        build: .
+        container_name: mqtt
+        command: python3 mqtt_client.py
+        volumes:
+            - .:/app
+        environment:
+            TZ:             Europe/Amsterdam
+        restart: unless-stopped

@@ -1,0 +1,15 @@
+docs/**/*
+docs
+venv
+venv/**/*
+.git
+.git/**/*
+.circleci
+.circleci/**/*
+.idea
+.idea/**/*
+__pycache__
+__pycache__/**/*
+Dockerfile
+.vscode
+.vscode/**/*
