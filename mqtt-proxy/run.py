@@ -34,8 +34,9 @@ def receiveMessage(client, userdata, message):
     topic = str(message.topic)
     message = str(message.payload.decode("utf-8"))
     pushAction(client, "RX " + topic)
-    print("RX topic", topic, TOPIC_ACTION_POWER, message, topic == TOPIC_ACTION_POWER, PROXY)
+    print("RX topic", topic, "msg ", message)
     if topic == TOPIC_STATUS:
+        print("Processing status message")
         pushStatus(client)
         pushAction(client, "STATUS")
     elif topic == TOPIC_ACTION_POWER and PROXY is True:
