@@ -1,12 +1,12 @@
 [Unit]
-Description=Mqtt Proxy service
+Description=Moqiott Proxy service
 After=mosquitto.service
  
 [Service]
 User=pi
 Type=simple
 ExecStart=/usr/bin/python3 run.py
-WorkingDirectory=/home/david/mqtt-proxy
+WorkingDirectory=/home/david/Moqiott/mqtt-proxy
 Restart=always
  
 [Install]

@@ -1,6 +1,6 @@
 echo "Copying service spec."
 cd /lib/systemd/system/
-sudo cp /home/david/Mosqiott/mqtt-proxy/mqtt-proxy.service ./mqtt-proxy.service
+sudo cp /home/david/Moqiott/mqtt-proxy/mqtt-proxy.service ./mqtt-proxy.service
 
 echo "Stopping service (if existing). Chmod 644 service spec."
 sudo systemctl stop mqtt-proxy.service
