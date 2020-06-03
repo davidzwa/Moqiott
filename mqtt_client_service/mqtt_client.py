@@ -1,54 +1,51 @@
 import paho.mqtt.client as mqtt
 import time
+import atexit
+from enum import IntEnum
+
 BROKER = "10.0.4.35"
 PORT = 1883
-PROXY = False
 
-TOPIC_STATUS_CLIENT = "pc/status/client"
-TOPIC_STATUS_PROXY = "pc/status/proxy"
-TOPIC_STATUS = "pc/status"
-TOPIC_ACTION_ON = "pc/action/poweron"
-TOPIC_ACTION_OFF = "pc/action/poweroff"
-TOPIC_ACTION_RESULT = "pc/action/result"
+STATUS_QUERY = "status/query"
+STATUS_CLIENT_QUERY = "status/client/query"  # Query specific
+STATUS_CLIENT_RESPONSE = "status/client/response"  # Response specific
+POWER_TOGGLE_DIRECT = "power/toggle-direct"
 
-DEVICE_STATUS = "ON"
 MQTT_CLIENT_NAME = "pc-mqtt-docker"
 
 
+class ClientState(IntEnum):
+    unknown = 1
+    powering_on = 2
+    on = 3
+    powering_off = 4
+    off = 5
+    timeout = 6
+
+
 def pushStatus(client):
-    if PROXY:
-        print("Publishing proxy status")
-        client.publish(TOPIC_STATUS_PROXY, DEVICE_STATUS)
-    else:
-        client.publish(TOPIC_STATUS_CLIENT, "REFRESHING")
-        print("Publishing client status")
-        time.sleep(0.2)
-        client.publish(TOPIC_STATUS_CLIENT, DEVICE_STATUS)
+    client.publish(STATUS_CLIENT_RESPONSE, int(ClientState.on))
 
 
 def receiveMessage(client, userdata, message):
-    topic = str(message.topic)
+    topic = message.topic
     message = str(message.payload.decode("utf-8"))
     print("Received msg:", topic + " " + message)
-    if topic == TOPIC_STATUS:
+    if topic == STATUS_CLIENT_QUERY or topic == STATUS_QUERY:
         pushStatus(client)
-    # elif message.topic == TOPIC_ACTION_OFF and not proxy:
-    #     action_off()
-    # elif message.topic == TOPIC_ACTION_ON and not proxy:
-    #     action_on()
+    elif topic == POWER_TOGGLE_DIRECT:
+        pass
     else:
-        print("Topic unknown: " + message.topic)
+        print("Topic unknown: " + topic)
 
 
 def on_connect(client, userdata, flags, rc):
-    print("Connected and powered on.")
-    if PROXY:
-        client.subscribe(TOPIC_STATUS_CLIENT)
-
-    client.subscribe(TOPIC_ACTION_ON)
+    print("PC Connected and powered on.")
+    client.subscribe(STATUS_CLIENT_QUERY)
+    client.subscribe(STATUS_QUERY)
+    client.subscribe(POWER_TOGGLE_DIRECT)
 
     pushStatus(client)
-    client.subscribe(TOPIC_STATUS)
     client.on_message = receiveMessage
 
 
@@ -57,8 +54,7 @@ def on_disconnect(client, userdata, rc):
     print("Disconnect, reason: " + str(client))
 
 
-def start():
-    client = mqtt.Client(MQTT_CLIENT_NAME)
+def start(client: mqtt.Client):
     client.on_connect = on_connect
     client.on_disconnect = on_disconnect
     print("about to connect on: " + BROKER)
@@ -66,6 +62,15 @@ def start():
     client.loop_forever()
 
 
+def send_shutdown(client: mqtt.Client):
+    print("Service ending. Announcing shuting-down state. " + MQTT_CLIENT_NAME)
+    client.publish(STATUS_CLIENT_RESPONSE, ClientState.powering_off)
+
+
 if __name__ == "__main__":
     print("Starting mqtt client " + MQTT_CLIENT_NAME)
-    start()
+    client = mqtt.Client(MQTT_CLIENT_NAME)
+
+    # Starting daemon
+    atexit.register(send_shutdown, client)
+    start(client)

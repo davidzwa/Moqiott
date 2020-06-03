@@ -1,73 +1,54 @@
-import paho.mqtt.client as mqtt
-import poweroff
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+
 from datetime import datetime
-from time import sleep
+from printy import printy
+import paho.mqtt.client as mqtt
+
+import app_logging
+import cli
+import powertoggle
+import time
+import utils
+import mqtt_secrets
+from fsm import FsmActor
 
 BROKER = "localhost"
 PORT = 1883
-PROXY = True
-
-TOPIC_STATUS_CLIENT = "pc/status/client"
-TOPIC_STATUS_PROXY = "pc/status/proxy"
-TOPIC_STATUS = "pc/status"
-TOPIC_ACTION_POWER = "pc/action/power"
-TOPIC_ACTION_RESULT = "pc/action/result"
-
 DEVICE_STATUS = "ON"
 MQTT_CLIENT_NAME = "rpi3-proxy-2"
 
 
-def pushStatus(client):
-    if PROXY:
-        client.publish(TOPIC_STATUS_PROXY, "REFRESH proxy")
-    else:
-        client.publish(TOPIC_STATUS_CLIENT, "REFRESH client ")
-
-def pushAction(client, action):
-    if PROXY:
-        client.publish(TOPIC_ACTION_RESULT, action)
-    else:
-        client.publish(TOPIC_ACTION_RESULT, "CLIENT ACTION")
-
-
-def receiveMessage(client, userdata, message):
-    topic = str(message.topic)
-    message = str(message.payload.decode("utf-8"))
-    pushAction(client, "RX " + topic)
-    print("RX topic", topic, "msg ", message)
-    if topic == TOPIC_STATUS:
-        print("Processing status message")
-        pushStatus(client)
-        pushAction(client, "STATUS")
-    elif topic == TOPIC_ACTION_POWER and PROXY is True:
-        print("Powering off")
-        pushAction(client, "POWER toggling")
-        poweroff.action_off()
-        sleep(2.5)
-        pushAction(client, "POWER complete")
-    else:
-        print("Topic unknown: " + message.topic)
-
-
-def on_connect(client, userdata, flags, rc):
-    print("Connected and powered on.")
-    client.subscribe(TOPIC_ACTION_POWER)
-    client.subscribe(TOPIC_STATUS)
-    client.publish("init", str(datetime.now().strftime("%H:%M:%S")))
-
-
-def on_disconnect(client, userdata, rc):
-    print("Disconnect, reason: " + str(rc))
-    print("Disconnect, reason: " + str(client))
-
-
 if __name__ == "__main__":
-    print("Starting mqtt client " + MQTT_CLIENT_NAME)
-    client = mqtt.Client(MQTT_CLIENT_NAME)
-    client.on_connect = on_connect
-    client.on_disconnect = on_disconnect
-    client.on_message = receiveMessage
+    logger = None
+    args = cli.process_cli_args()
+    if args.production == True:
+        logger = app_logging.setup(
+            '/home/david/Moqiott/log/production_{}.log'.format(utils.logname_timestamp()))
+    else:
+        logger = app_logging.setup(
+            '/home/david/Moqiott/log/debug.log')
 
-    print("about to connect on: " + BROKER)
-    client.connect(BROKER, PORT)
-    client.loop_forever()
+    logger.info('started APP ' + __name__ + ", time: '{}', Utc: '{}'".format(
+        datetime.now(), datetime.utcnow()))
+    logger.debug("Starting mqtt client: " + MQTT_CLIENT_NAME)
+    client = mqtt.Client(MQTT_CLIENT_NAME)
+    client.enable_logger(logger)
+    client.username_pw_set(mqtt_secrets.username, mqtt_secrets.password)
+
+    logger.debug("About to connect on: {}:{}".format(BROKER, PORT))
+    actor = FsmActor(client)
+    actor.start_connection(BROKER, PORT)
+    logger.debug("Setting up power pins.")
+    powertoggle.setup_pins()
+
+    try:
+        client.loop_start()
+        while True:
+            time.sleep(30)
+            actor.send_refresh()
+        client.loop_forever()
+    except KeyboardInterrupt as e:
+        actor.dispose()
+
+    powertoggle.cleanup_pins()

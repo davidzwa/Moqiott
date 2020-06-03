@@ -127,3 +127,5 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+mosquitto_pwd.txt
+**/*secrets.py

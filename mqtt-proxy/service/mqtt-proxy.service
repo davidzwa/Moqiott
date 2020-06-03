@@ -6,7 +6,7 @@ After=mosquitto.service
 User=pi
 Type=simple
 ExecStart=/usr/bin/python3 run.py
-WorkingDirectory=/home/david/Moqiott/mqtt-proxy
+WorkingDirectory=/home/david/Moqiott/mqtt-proxy/
 Restart=always
  
 [Install]
