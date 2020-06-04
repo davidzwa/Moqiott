@@ -1,7 +1,10 @@
 import paho.mqtt.client as mqtt
 from printy import printy
 from enum import IntEnum
+import traceback
 
+import powertoggle
+import utils
 import app_logging
 
 logger = app_logging.get_logger()
@@ -17,8 +20,8 @@ POWER_RESPONSE = "power/response"
 POWER_TOGGLE = "power/toggle"
 
 TIMEOUT_QUICK = 500
-TIMEOUT_POWEROFF = 15000
-TIMEOUT_LONG = 30000
+TIMEOUT_POWEROFF = 2500
+TIMEOUT_LONG = 5000
 
 
 class ClientState(IntEnum):
@@ -37,8 +40,9 @@ class State(IntEnum):
     querying = 4
     shutting_down = 5
     await_response = 6  # U expect a short timeout to be fine
-    await_timeout = 7  # U have no clue: long timeout this time
-    await_poweroff = 8  # U are pretty sure it is powering off, semi-long timeout
+    # U have no clue (unknown, powering_on, timeout): long timeout this time
+    await_timeout = 7
+    await_power = 8  # U are pretty sure it is powering off, semi-long timeout
 
 
 class FsmActor(object):
@@ -56,9 +60,7 @@ class FsmActor(object):
     def start_connection(self, broker, port):
         if self.state == State.booting:
             self.client.connect(broker, port)
-            if self.client.is_connected:
-                self.__set_connected()
-            else:
+            if not self.client.is_connected:
                 self.__set_awaiting()
         else:
             logger.warning(
@@ -67,6 +69,7 @@ class FsmActor(object):
     def subscribe_topics(self):
         self.client.subscribe(POWER_QUERY)
         self.client.subscribe(STATUS_QUERY)
+        self.client.subscribe(STATUS_CLIENT_RESPONSE)
         self.client.subscribe(POWER_TOGGLE)
 
     def on_message(self, client: mqtt.Client, userdata, message):
@@ -81,19 +84,38 @@ class FsmActor(object):
             elif topic == POWER_QUERY:
                 logger.info("Starting proxied power query")
                 self.__set_querying()
+            elif topic == STATUS_CLIENT_RESPONSE:
+                self.current_power = ClientState.on
+                self.__set_connected()
             elif topic == POWER_TOGGLE:
+                if self.current_power is ClientState.unknown:
+                    # We gotta query first
+                    self.__set_querying()
+                    return
+
                 if self.current_power is ClientState.on:
                     self.current_power = ClientState.powering_off
-                elif self.current_power is ClientState.off:
+                elif self.current_power is ClientState.powering_off or self.current_power is ClientState.powering_on:
+                    # Dont undertake action when powering off/on
+                    # self.__send_power()
+                    return
+                else:
                     self.current_power = ClientState.powering_on
+
+                powertoggle.action_toggle()
                 self.__send_power()
-                logger.info("Power: " + str(self.current_power))
+                logger.info("Power action. ClientState: " +
+                            str(self.current_power))
         except Exception as e:
+            traceback.print_exc()
             logger.error("Handle message exception {}".format(str(e)))
 
     def send_refresh(self):
         self.__send_state()
         self.__send_power()
+
+    def trigger_query(self):
+        self.__set_querying()
 
     def on_connect(self, client: mqtt.Client, userdata, flags, rc):
         if self.state == State.await_mqtt:
@@ -121,7 +143,6 @@ class FsmActor(object):
     def __set_connected(self):
         self.state = State.connected
         self.__send_state()
-        self.__set_querying()
 
     def __set_querying(self):
         if self.state == State.querying:
@@ -131,7 +152,7 @@ class FsmActor(object):
         elif self.state == State.booting or self.state == State.await_mqtt:
             logger.warning("Still awaiting connection. Cant query.")
             return
-        elif self.state == State.await_poweroff or self.state == State.await_timeout or self.state == State.await_response:
+        elif self.state == State.await_power or self.state == State.await_timeout or self.state == State.await_response:
             # We are still in waiting state...
             if self.__check_timeout_exceeded():
                 self.current_power = ClientState.timeout
@@ -144,32 +165,57 @@ class FsmActor(object):
 
         self.state = State.querying
         self.__send_client_query()
-        logger.warning("Querying client, although timeout is expected.")
-        self.__set_await_timeout()
+        logger.warning("Querying client.")
+        self.__set_process_timeout_type()
         pass
         # ClientState.unknown or self.current_power == ClientState.off or self.current_power == ClientState.powering_off:
 
-    def __set_await_timeout():
-        self.reference_time_ms = utils.get_millis()
+    def __set_process_timeout_type(self):
+        # (unknown, powering_on, timeout)
+        if self.current_power == ClientState.unknown \
+                or self.current_power == ClientState.powering_on \
+                or self.current_power == ClientState.off \
+                or self.current_power == ClientState.timeout:
+            self.reference_time_ms = utils.get_millis()
+            self.__set_await_timeout()
+        elif self.current_power == ClientState.powering_off:
+            self.__set_poweroff_timeout()
+        elif self.current_power == ClientState.on:
+            self.__set_response_timeout()
+
+    def get_timeout_time(self):
+        timeout = 0
+        if self.state == State.await_power:
+            timeout = TIMEOUT_POWEROFF
+        elif self.state == State.await_response:
+            timeout = TIMEOUT_QUICK
+        elif self.state == State.await_timeout:
+            timeout = TIMEOUT_LONG
+        else:
+            return (0, None)
+
+        reference2_time_ms = utils.get_millis()
+        if self.reference_time_ms is None:
+            self.reference_time_ms = reference2_time_ms
+        diff = reference2_time_ms - self.reference_time_ms
+        return (diff, timeout)
+
+    def __set_response_timeout(self):
+        self.state = State.await_response
+
+    def __set_poweroff_timeout(self):
+        self.state = State.await_power
+
+    def __set_await_timeout(self):
         self.state = State.await_timeout
+        # External factors can trigger us now
 
     def __set_shutdown(self):
         self.state = State.shutting_down
         self.__send_state()
 
     def __check_timeout_exceeded(self) -> bool:
-        timeout = 0
-        if self.state == State.await_poweroff:
-            timeout = TIMEOUT_POWEROFF
-        elif self.state == State.await_response:
-            timeout = TIMEOUT_QUICK
-        elif self.state == State.await_timeout:
-            timeout = TIMEOUT_LONG
-
-        reference2_time_ms = utils.get_millis()
-        if self.reference_time_ms is None:
-            self.reference_time_ms = reference2_time_ms
-        diff = reference2_time_ms - self.reference_time_ms
+        diff, timeout = self.get_timeout_time()
         return diff > timeout
 
     def __send_client_query(self):

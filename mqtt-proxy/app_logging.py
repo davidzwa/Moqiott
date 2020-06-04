@@ -8,7 +8,7 @@ logging.basicConfig(level=logging.DEBUG)
 
 def setup(file: str):
     logger = logging.getLogger(prefix)
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(logging.INFO)
     # create file handler which logs even debug messages
     fh = logging.FileHandler(file)
     fh.setLevel(logging.DEBUG)

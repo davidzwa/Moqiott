@@ -17,7 +17,7 @@ BROKER = "localhost"
 PORT = 1883
 DEVICE_STATUS = "ON"
 MQTT_CLIENT_NAME = "rpi3-proxy-2"
-
+LOOP_SEC = 1
 
 if __name__ == "__main__":
     logger = None
@@ -45,10 +45,19 @@ if __name__ == "__main__":
     try:
         client.loop_start()
         while True:
-            time.sleep(30)
-            actor.send_refresh()
-        client.loop_forever()
+            diff, timeout = actor.get_timeout_time()
+            if timeout is None:
+                # No timeout, resort to normal behaviour
+                logger.info("Main loop waiting {} sec".format(LOOP_SEC))
+                time.sleep(LOOP_SEC)
+            elif diff > 100:
+                time.sleep(diff / 1000.0)
+            else:
+                time.sleep(0.1)
+            actor.trigger_query()
     except KeyboardInterrupt as e:
         actor.dispose()
+    except Exception as e:
+        logger.error("Exception {}".format(e))
 
     powertoggle.cleanup_pins()

@@ -23,4 +23,4 @@ def logname_timestamp():
 
 def get_millis():
     milliseconds = int(round(time.time() * 1000))
-    print(milliseconds)
+    return milliseconds
