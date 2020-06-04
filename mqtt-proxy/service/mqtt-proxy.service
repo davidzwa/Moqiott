@@ -5,9 +5,10 @@ After=mosquitto.service
 [Service]
 User=pi
 Type=simple
-ExecStart=/usr/bin/python3 run.py
+ExecStart=/usr/bin/python3 run.py --production
 WorkingDirectory=/home/david/Moqiott/mqtt-proxy/
 Restart=always
+User=david
  
 [Install]
 WantedBy=multi-user.target

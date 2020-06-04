@@ -5,7 +5,7 @@ from time import sleep
 
 import app_logging
 
-REAL_ACTION = False
+REAL_ACTION = True
 power_pin = 2
 
 logger = app_logging.get_logger()
